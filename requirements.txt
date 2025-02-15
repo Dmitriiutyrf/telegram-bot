@@ -1,0 +1,6 @@
+python-telegram-bot
+telethon
+requests
+scikit-learn
+tensorflow
+gunicorn
