@@ -1,13 +1,15 @@
 import logging
 import os
-import asyncio
 import pickle
 import csv
+import asyncio
 import pandas as pd
 import numpy as np
 from datetime import datetime
 from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram.ext import (
+    Application, CommandHandler, MessageHandler, filters, ContextTypes
+)
 import requests
 import openai
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -39,7 +41,7 @@ TRAINING_DATA_FILE = "training_data.csv"  # Файл для внешних об�
 CONV_KB_FILE = "conversational_kb.csv"      # Файл базы знаний разговорного характера
 CONFIDENCE_THRESHOLD = 0.7
 
-# ------------------- Инициализация модели ------------------- #
+# ------------------- Инициализация глобальной модели ------------------- #
 model = Pipeline([
     ('tfidf', TfidfVectorizer()),
     ('clf', LogisticRegression(solver='liblinear', max_iter=200))
@@ -116,12 +118,10 @@ def retrain_model():
         logger.info("Файл обучающих данных не найден.")
         return "Файл обучающих данных не найден."
 
-async def continuous_training_task():
-    while True:
-        logger.info("Запуск фонового переобучения модели...")
-        result = retrain_model()
-        logger.info("Результат переобучения: %s", result)
-        await asyncio.sleep(3600)
+# Функция для фонового переобучения через JobQueue (синхронная функция)
+def training_job(context: ContextTypes.DEFAULT_TYPE):
+    result = retrain_model()
+    logger.info("Фоновое обучение: %s", result)
 
 # ------------------- Модуль базы знаний (разговорной) ------------------- #
 kb_vectorizer = None
@@ -131,7 +131,7 @@ kb_data = None
 def load_conversational_kb():
     global kb_data, kb_vectorizer, kb_matrix
     if os.path.exists(CONV_KB_FILE):
-        kb_data = pd.read_csv(CONV_KB_FILE)  # Файл должен содержать колонки "question" и "answer"
+        kb_data = pd.read_csv(CONV_KB_FILE)
         if not kb_data.empty:
             kb_vectorizer = TfidfVectorizer()
             kb_matrix = kb_vectorizer.fit_transform(kb_data['question'].tolist())
@@ -157,6 +157,14 @@ def query_knowledge_base(query):
     else:
         return kb_data.iloc[best_idx]['answer']
 
+async def kb_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = ' '.join(context.args)
+    if not query:
+        await update.message.reply_text("Пожалуйста, укажите вопрос для поиска в базе знаний, например: /kb Как работает блокчейн?")
+        return
+    answer = query_knowledge_base(query)
+    await update.message.reply_text(answer)
+
 # ------------------- Обработчики Telegram-бота ------------------- #
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -180,9 +188,7 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         os.makedirs("data", exist_ok=True)
         file_path = os.path.join("data", document.file_name)
         await file.download_to_drive(custom_path=file_path)
-        await update.message.reply_text(
-            f"Файл '{document.file_name}' успешно загружен. Начинается обучение модели..."
-        )
+        await update.message.reply_text(f"Файл '{document.file_name}' успешно загружен. Начинается обучение модели...")
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(None, train_model_on_data, file_path)
         await update.message.reply_text(result)
@@ -281,7 +287,7 @@ async def auto_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text("Ошибка при общении с ИИ: " + str(e))
 
-# Функции аналитики (заглушки)
+# ------------------- Функции аналитики (заглушки) ------------------- #
 def send_event_to_google(event_name, event_params, client_id="555"):
     payload = {
       "client_id": client_id,
@@ -331,7 +337,8 @@ def main():
     application.add_handler(MessageHandler(filters.Document.ALL, document_handler))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, auto_chat))
 
-    asyncio.create_task(continuous_training_task())
+    # Используем JobQueue для фонового переобучения модели каждые 3600 секунд (1 час)
+    application.job_queue.run_repeating(training_job, interval=3600, first=10)
 
     application.run_polling()
 
