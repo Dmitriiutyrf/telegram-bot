@@ -5,5 +5,3 @@ scikit-learn
 openai
 requests
 numpy
-beautifulsoup4
-feedparser

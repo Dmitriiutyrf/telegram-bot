@@ -2,7 +2,6 @@ import logging
 import os
 import pickle
 import csv
-import asyncio
 import pandas as pd
 import numpy as np
 from datetime import datetime
@@ -37,8 +36,8 @@ YANDEX_OAUTH_TOKEN = "YOUR_YANDEX_OAUTH_TOKEN"  # Замените на свои
 
 # ------------------- Глобальные переменные ------------------- #
 MODEL_FILE = "model.pkl"
-TRAINING_DATA_FILE = "training_data.csv"  # Файл для внешних обучающих данных
-CONV_KB_FILE = "conversational_kb.csv"      # Файл базы знаний разговорного характера
+TRAINING_DATA_FILE = "training_data.csv"   # Файл для внешних обучающих данных
+CONV_KB_FILE = "conversational_kb.csv"       # Файл базы знаний разговорного характера
 CONFIDENCE_THRESHOLD = 0.7
 
 # ------------------- Инициализация глобальной модели ------------------- #
@@ -118,7 +117,7 @@ def retrain_model():
         logger.info("Файл обучающих данных не найден.")
         return "Файл обучающих данных не найден."
 
-# Функция для фонового переобучения через JobQueue (синхронная функция)
+# Функция, которая будет запускаться JobQueue для фонового переобучения
 def training_job(context: ContextTypes.DEFAULT_TYPE):
     result = retrain_model()
     logger.info("Фоновое обучение: %s", result)
@@ -337,7 +336,7 @@ def main():
     application.add_handler(MessageHandler(filters.Document.ALL, document_handler))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, auto_chat))
 
-    # Используем JobQueue для фонового переобучения модели каждые 3600 секунд (1 час)
+    # Запускаем фоновую задачу для переобучения модели через JobQueue
     application.job_queue.run_repeating(training_job, interval=3600, first=10)
 
     application.run_polling()
