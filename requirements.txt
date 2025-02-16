@@ -1,6 +1,9 @@
 python-telegram-bot
-telethon
-requests
+pandas
+openpyxl
 scikit-learn
-tensorflow
-gunicorn
+openai
+requests
+numpy
+beautifulsoup4
+feedparser
